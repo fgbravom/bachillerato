@@ -19,7 +19,7 @@ Abre <http://localhost:8080>. Comprobaciones rápidas: `curl localhost:8080/heal
 
 ## Railway
 
-Railway es la plataforma prevista. Aún no hay un despliegue publicado; estos son los pasos para hacerlo.
+El juego está publicado en Railway: <https://bachillerato-production.up.railway.app>. Estos son los pasos con que se armó.
 
 ### Primer despliegue (una vez, a mano)
 

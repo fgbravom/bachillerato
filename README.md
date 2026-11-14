@@ -4,6 +4,8 @@ Juego web multijugador del clásico chileno de papel y lápiz: sale una letra y 
 velocidad una palabra por categoría que empiece con ella. Para jugar en familia o con amigos, sin
 registro, sin publicidad y directo al navegador (computador o celular).
 
+**Jugar ahora:** <https://bachillerato-production.up.railway.app>
+
 Es hermano de [Dibuja y Adivina](https://github.com/fgbravom/dibujayadivina): misma arquitectura,
 mismo stack y misma identidad visual de cuaderno.
 
