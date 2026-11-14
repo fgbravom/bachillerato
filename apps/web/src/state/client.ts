@@ -1,0 +1,462 @@
+// Cliente de sockets tipado con el contrato. Convierte los eventos del servidor en cambios del
+// store (vía el reductor puro de `session.ts`), sincroniza la hoja de respuestas (`answers.ts`) y
+// expone las acciones que la interfaz puede pedir. Aquí viven la reconexión, la identidad y la URL.
+
+import {
+  SERVER_EVENTS,
+  type CategoryId,
+  type ClientToServerEvents,
+  type ErrorCode,
+  type GameSettings,
+  type ServerToClientEvents,
+} from '@bach/shared';
+import { io, type Socket } from 'socket.io-client';
+import { playSound, soundForEvent } from '../sound';
+import { roomSharePath } from '../ui/lib/share';
+import { AnswerSync, mergeAnswers } from './answers';
+import {
+  browserStorage,
+  clearSavedRoom,
+  loadNickname,
+  loadSavedRoom,
+  loadSessionId,
+  saveNickname,
+  saveRoom,
+  takePendingHomeError,
+  type SavedRoom,
+} from './identity';
+import { parseRoomPath } from './route';
+import {
+  initialSession,
+  reduceSession,
+  withLocalAnswer,
+  withMyAnswers,
+  type ServerEvent,
+} from './session';
+import { startSoundDriver } from './soundDriver';
+import { useGameStore } from './store';
+import { checkForUpdate, reloadIfOutdated, reloadNow, startUpdateChecker } from './updater';
+
+type BachSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+
+/** Cuánto se espera el acuse de `room:create` / `room:join` antes de darlo por perdido. */
+const ACK_TIMEOUT_MS = 8000;
+
+// El apodo vive en localStorage (lo comparten las pestañas). La sala a la que se pertenece vive en
+// sessionStorage: sobrevive a recargar la página, pero una pestaña nueva no se mete sola a la sala.
+const local = browserStorage('local');
+const tab = browserStorage('session');
+
+const sessionId = loadSessionId(local);
+
+let socket: BachSocket | null = null;
+/** Sala a la que pertenece este navegador; con ella se reenvía `room:join` al reconectar. */
+let joined: SavedRoom | null = null;
+/** Ya se entró a `joined` en la conexión actual (acuse recibido). */
+let ready = false;
+/** Hay un `room:join` de reconexión esperando su acuse. */
+let rejoining = false;
+/** Código destino guardado por `popstate` cuando se confirma salir de la sala. */
+let pendingInviteCode: string | null = null;
+let started = false;
+/** El socket se cayó y aún no volvió a conectar: la próxima conexión es una reconexión. */
+let wasDisconnected = false;
+
+const set = useGameStore.setState;
+
+/** Respuestas de la hoja: envío con retardo, vaciado inmediato y reposición tras reconectar. */
+export const answerSync = new AnswerSync({
+  send(category, text) {
+    if (!socket?.connected) return false;
+    socket.emit('answers:update', { category, text });
+    return true;
+  },
+});
+
+// --- URL --------------------------------------------------------------------
+
+/** Al entrar a una sala la URL pasa a `/sala/CODIGO`: se reemplaza si ya era una ruta de sala (enlace), se agrega si venía de `/`. */
+function showRoomUrl(code: string): void {
+  const target = roomSharePath(code);
+  if (window.location.pathname === target) return;
+  if (parseRoomPath(window.location.pathname) !== null) {
+    window.history.replaceState(null, '', target);
+  } else {
+    window.history.pushState(null, '', target);
+  }
+}
+
+// --- Eventos del servidor ---------------------------------------------------
+
+function handleServerEvent(event: ServerEvent): void {
+  if (event.type === 'system:online') {
+    set({ onlineCount: event.payload.count });
+    return;
+  }
+
+  if (event.type === 'system:error') {
+    handleSystemError(event.payload.code);
+    return;
+  }
+
+  const { session, roomError } = useGameStore.getState();
+  // El efecto se decide con la foto previa al evento; `room:state` (entrar o reconectar) no suena.
+  const sound = soundForEvent(session.room, event);
+  if (sound) playSound(sound);
+
+  // Las hojas se cierran: lo que quede por enviar sale ahora (el servidor aún acepta la gracia).
+  if (event.type === 'round:stopped') answerSync.flush();
+
+  let next = reduceSession(session, event, Date.now());
+  if (next === session) return;
+  next = syncAnswers(next, event);
+
+  const phaseChanged = next.room?.phase !== session.room?.phase;
+  set({
+    session: next,
+    ...(event.type === 'room:state' ? { resuming: false } : {}),
+    // Un aviso de la fase anterior ya no aplica.
+    ...(phaseChanged && roomError !== null ? { roomError: null } : {}),
+  });
+}
+
+/**
+ * Mantiene al día el borrador de la hoja con lo que dice el servidor: se descarta al empezar otra
+ * ronda o salir de la escritura, y al recibir la foto en plena escritura (reconexión) se reenvía lo
+ * local que difiera y se repone en la foto, para no perder lo tecleado y aún no enviado.
+ */
+function syncAnswers(
+  next: ReturnType<typeof reduceSession>,
+  event: ServerEvent,
+): ReturnType<typeof reduceSession> {
+  switch (event.type) {
+    case 'room:state': {
+      const room = next.room;
+      if (room?.phase !== 'WRITING' || room.myAnswers === null) {
+        answerSync.reset();
+        return next;
+      }
+      const server = room.myAnswers;
+      answerSync.resync(room.round, server);
+      return withMyAnswers(next, mergeAnswers(server, answerSync.getDraft(room.round)));
+    }
+    case 'round:letter':
+    case 'review:category':
+    case 'round:end':
+    case 'game:end':
+      answerSync.reset();
+      return next;
+    default:
+      return next;
+  }
+}
+
+function handleSystemError(code: ErrorCode): void {
+  // Los límites de frecuencia no interrumpen nada: el envío de la hoja ya los respeta.
+  if (code === 'rate_limited') return;
+  // El servidor no nos reconoce en la sala (p. ej. se perdió el acuse): se vuelve a entrar.
+  if (code === 'not_in_room') {
+    rejoin();
+    return;
+  }
+  // El servidor cerró la sala (p. ej. por inactividad): no hay a dónde volver.
+  if (code === 'room_not_found') {
+    abandonRoom(code);
+    return;
+  }
+  set({ roomError: code });
+}
+
+// --- Socket y reconexión ----------------------------------------------------
+
+function connectSocket(): void {
+  const s: BachSocket = io();
+  socket = s;
+
+  s.on('connect', () => {
+    set({ status: 'connected', takenOver: false });
+    if (joined) rejoin();
+    // Un despliegue siempre corta el socket: al volver es el momento de ver si hay versión nueva.
+    if (wasDisconnected) {
+      wasDisconnected = false;
+      void checkForUpdate();
+    }
+  });
+
+  s.on('disconnect', (reason) => {
+    ready = false;
+    rejoining = false;
+    wasDisconnected = true;
+    set({ status: 'disconnected' });
+    // El servidor cierra esta conexión cuando la misma sesión se abre en otra pestaña: no se
+    // reconecta sola (se pelearían), la persona decide.
+    if (reason === 'io server disconnect') {
+      if (joined) set({ takenOver: true });
+      else s.connect();
+    }
+  });
+
+  s.on('connect_error', () => {
+    wasDisconnected = true;
+    set({ status: 'disconnected' });
+  });
+
+  for (const name of Object.values(SERVER_EVENTS)) {
+    s.on(name, ((payload: unknown) => {
+      handleServerEvent({ type: name, payload } as ServerEvent);
+    }) as never);
+  }
+}
+
+/** Reenvía `room:join` con el mismo `sessionId` para recuperar el puesto. */
+function rejoin(): void {
+  const target = joined;
+  if (!socket || !target || rejoining) return;
+  rejoining = true;
+  socket
+    .timeout(ACK_TIMEOUT_MS)
+    .emit('room:join', { code: target.code, name: target.name, sessionId }, (err, res) => {
+      rejoining = false;
+      if (joined !== target) return;
+      if (err) {
+        // Sin respuesta: se reintenta cuando el socket vuelva a conectar; si no, queda el aviso de conexión.
+        return;
+      }
+      if (!res.ok) {
+        abandonRoom(res.error);
+        return;
+      }
+      ready = true;
+    });
+}
+
+/** Se pierde la sala (no existe, está llena…): se vuelve al inicio mostrando el error. */
+function abandonRoom(error: ErrorCode | null): void {
+  joined = null;
+  ready = false;
+  answerSync.reset();
+  clearSavedRoom(tab);
+  window.history.replaceState(null, '', '/');
+  set({
+    session: initialSession,
+    resuming: false,
+    busy: false,
+    inviteCode: null,
+    homeError: error,
+    roomError: null,
+  });
+  reloadIfOutdated();
+}
+
+function enterRoom(code: string, name: string): void {
+  joined = { code, name };
+  ready = true;
+  saveRoom(tab, joined);
+  showRoomUrl(code);
+  set({ busy: false, resuming: false, inviteCode: null, homeError: null });
+}
+
+function requestRoom(
+  event: 'room:create' | 'room:join',
+  payload: { code?: string; name: string },
+): void {
+  if (!socket) return;
+  const { name } = payload;
+  set({ busy: true, homeError: null, nickname: name });
+  saveNickname(local, name);
+  const done = (err: Error | null, res?: { ok: boolean; code?: string; error?: ErrorCode }) => {
+    if (err || !res) {
+      set({ busy: false, homeError: 'internal' });
+    } else if (!res.ok || !res.code) {
+      set({ busy: false, homeError: res.error ?? 'internal' });
+    } else {
+      enterRoom(res.code, name);
+    }
+  };
+  if (event === 'room:create') {
+    socket.timeout(ACK_TIMEOUT_MS).emit('room:create', { name, sessionId }, done);
+  } else if (payload.code) {
+    socket.timeout(ACK_TIMEOUT_MS).emit('room:join', { code: payload.code, name, sessionId }, done);
+  }
+}
+
+// --- Salir de la sala -------------------------------------------------------
+
+/**
+ * Sale de la sala: se cierra el socket y se abre uno nuevo (el contrato no tiene un evento de
+ * salida), se olvida la sala guardada y se vuelve a `/` (salvo `keepUrl`, cuando la URL ya la
+ * eligió el botón atrás del navegador).
+ */
+function leaveRoom(options: { keepUrl?: boolean } = {}): void {
+  joined = null;
+  ready = false;
+  rejoining = false;
+  answerSync.reset();
+  clearSavedRoom(tab);
+  if (!options.keepUrl) window.history.replaceState(null, '', '/');
+
+  const old = socket;
+  old?.removeAllListeners();
+  old?.disconnect();
+  connectSocket();
+
+  set({
+    status: 'connecting',
+    takenOver: false,
+    resuming: false,
+    busy: false,
+    inviteCode: null,
+    homeError: null,
+    roomError: null,
+    confirmingLeave: false,
+    session: initialSession,
+  });
+  reloadIfOutdated();
+}
+
+/** Botón atrás/adelante del navegador. */
+function onPopState(): void {
+  const code = parseRoomPath(window.location.pathname);
+  if (!joined) {
+    set({ inviteCode: code });
+    return;
+  }
+  if (code === joined.code) return;
+  pendingInviteCode = code;
+  // Se queda visualmente en la sala hasta que confirme; el modal decide el destino.
+  window.history.pushState(null, '', roomSharePath(joined.code));
+  set({ confirmingLeave: true });
+}
+
+/** Hay una sala en curso o a punto de estarlo: una recarga sola interrumpiría a la persona. */
+function inRoom(): boolean {
+  const { busy, session } = useGameStore.getState();
+  return joined !== null || session.room !== null || busy;
+}
+
+// --- Arranque ---------------------------------------------------------------
+
+/** Una sola vez, antes de pintar: lee identidad y URL, y abre el socket. */
+export function initClient(): void {
+  if (started) return;
+  started = true;
+
+  const inviteCode = parseRoomPath(window.location.pathname);
+  const saved = loadSavedRoom(tab);
+  // Si la página se recargó por una versión nueva estando en el inicio, vuelve a mostrar su error.
+  set({ nickname: loadNickname(local), inviteCode, homeError: takePendingHomeError(tab) });
+
+  // Recarga dentro de una sala: la URL sigue siendo la de esa sala. Cualquier otra ruta descarta lo guardado.
+  if (saved && inviteCode === saved.code) {
+    joined = saved;
+    set({ resuming: true, inviteCode: null });
+  } else if (saved) {
+    clearSavedRoom(tab);
+  }
+
+  connectSocket();
+  startSoundDriver();
+  startUpdateChecker(inRoom);
+  window.addEventListener('popstate', onPopState);
+  // Al ocultar la página (cambio de pestaña, pantalla apagada, cierre) lo escrito sale de inmediato.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') answerSync.flush();
+  });
+  window.addEventListener('pagehide', () => answerSync.flush());
+}
+
+// --- Acciones de la interfaz ------------------------------------------------
+
+function emitWhenReady(send: (s: BachSocket) => void): void {
+  if (socket?.connected && ready) send(socket);
+}
+
+export const actions = {
+  setNickname(name: string): void {
+    set({ nickname: name });
+    saveNickname(local, name);
+  },
+  createRoom(name: string): void {
+    requestRoom('room:create', { name });
+  },
+  joinRoom(code: string, name: string): void {
+    requestRoom('room:join', { code, name });
+  },
+  startGame(): void {
+    emitWhenReady((s) => s.emit('game:start'));
+  },
+  changeSettings(settings: GameSettings): void {
+    emitWhenReady((s) => s.emit('room:settings', settings));
+  },
+  /** Solo quien tiene el turno: detiene la ruleta de letras. */
+  stopLetter(): void {
+    emitWhenReady((s) => s.emit('letter:stop'));
+  },
+  /** Cambió el texto de una categoría: se guarda al tiro y se envía con retardo. */
+  changeAnswer(category: CategoryId, text: string): void {
+    const { room } = useGameStore.getState().session;
+    if (!room || room.phase !== 'WRITING') return;
+    answerSync.change(room.round, category, text);
+    set((s) => ({ session: withLocalAnswer(s.session, room.round, category, text) }));
+  },
+  /** ¡STOP!: antes se vacía lo pendiente, para que el servidor tenga la hoja completa al revisarla. */
+  stop(): void {
+    answerSync.flush();
+    emitWhenReady((s) => s.emit('round:stop'));
+  },
+  vote(key: string, reject: boolean): void {
+    emitWhenReady((s) => s.emit('review:vote', { key, reject }));
+  },
+  ready(isReady: boolean): void {
+    emitWhenReady((s) => s.emit('review:ready', { ready: isReady }));
+  },
+  sendMessage(text: string): void {
+    emitWhenReady((s) => s.emit('message:send', { text }));
+  },
+  leaveRoom(): void {
+    leaveRoom();
+  },
+  requestLeave(): void {
+    pendingInviteCode = null;
+    set({ confirmingLeave: true });
+  },
+  confirmLeave(): void {
+    const code = pendingInviteCode;
+    pendingInviteCode = null;
+    if (code !== null) {
+      leaveRoom({ keepUrl: true });
+      set({ inviteCode: code });
+      window.history.replaceState(null, '', roomSharePath(code));
+    } else {
+      leaveRoom();
+    }
+  },
+  cancelLeave(): void {
+    pendingInviteCode = null;
+    set({ confirmingLeave: false });
+  },
+  /** "Retomar aquí": vuelve a abrir la conexión que el servidor cerró por abrirse en otra pestaña. */
+  resumeHere(): void {
+    set({ takenOver: false, status: 'connecting' });
+    socket?.connect();
+  },
+  /** Abandona el intento de volver a la sala tras recargar. */
+  cancelResume(): void {
+    if (joined) leaveRoom();
+    else set({ resuming: false });
+  },
+  dismissHomeError(): void {
+    set({ homeError: null });
+  },
+  dismissRoomError(): void {
+    set({ roomError: null });
+  },
+  /** Cierra el aviso de versión nueva; vuelve a salir en la siguiente comprobación. */
+  dismissUpdate(): void {
+    set({ updateDismissed: true });
+  },
+  /** "Actualizar": recarga la página; la sala guardada devuelve a la persona a su sala. */
+  reloadForUpdate(): void {
+    reloadNow();
+  },
+};
