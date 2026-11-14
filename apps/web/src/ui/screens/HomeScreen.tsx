@@ -244,6 +244,16 @@ export function HomeScreen({
           Sale una letra, todos escriben una palabra por categoría y quien termina grita ¡STOP! Sin
           registro: eliges un apodo y compartes el código.
         </p>
+
+        <a
+          href="https://dibujayadivina-production.up.railway.app"
+          target="_blank"
+          rel="noopener"
+          data-testid="sibling-game-link"
+          className="mx-auto inline-flex items-center gap-1.5 rounded-full border-2 border-ink bg-card px-4 py-1.5 text-sm font-extrabold text-ink shadow-pop-sm"
+        >
+          ✏️ Juega también Dibuja y Adivina
+        </a>
       </main>
     </div>
   );
