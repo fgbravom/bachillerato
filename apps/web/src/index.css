@@ -1,0 +1,294 @@
+@import 'tailwindcss';
+
+/*
+ * Variantes de distribución de la partida (se corresponden con LAND_QUERY y DESK_QUERY de
+ * ui/hooks/useMediaQuery.ts; si cambias una, cambia la otra):
+ *  - land: teléfono apaisado. Más ancho que alto (>= 3:2) y poco alto. Hoja a la izquierda y
+ *    mensajes a la derecha.
+ *  - desk: escritorio. Hoja como tabla horizontal de cuaderno.
+ * Lo demás es teléfono vertical (o tableta vertical): todo apilado. land y desk son excluyentes.
+ */
+@custom-variant land (@media (min-aspect-ratio: 3/2) and (max-height: 500px));
+@custom-variant desk (@media (min-width: 1024px) and (min-height: 501px));
+
+/*
+ * Identidad visual de "Bachillerato": papel de cuaderno, tinta azul marino y colores de
+ * lápiz (copihue, sol, mar, pasto). Bordes gruesos y sombras duras, como un sticker pegado.
+ * Todos los colores de texto sobre fondo cumplen contraste AA (>= 4.5:1).
+ */
+@theme {
+  /* Superficies */
+  --color-paper: #fff6e3;
+  --color-paper-deep: #f6e5bd;
+  --color-card: #ffffff;
+
+  /* Tinta */
+  --color-ink: #1d2b4a;
+  --color-ink-soft: #4a5875;
+
+  /* Colores de marca */
+  --color-copihue: #c8203f;
+  --color-copihue-dark: #9d1530;
+  --color-copihue-soft: #fde1e6;
+  --color-sol: #ffc83d;
+  --color-sol-soft: #fff0bd;
+  --color-mar: #1f6f8b;
+  --color-mar-soft: #d9eef5;
+  --color-pasto: #166a40;
+  --color-pasto-soft: #d8f3e2;
+
+  /* Podio */
+  --color-plata: #cfd6e4;
+  --color-bronce: #e5a971;
+
+  /* Avatares (pasteles, siempre con texto de tinta) */
+  --color-avatar-1: #ffb8a8;
+  --color-avatar-2: #ffd98a;
+  --color-avatar-3: #bfe3a4;
+  --color-avatar-4: #9fdccf;
+  --color-avatar-5: #a9d3f5;
+  --color-avatar-6: #cdbdf5;
+  --color-avatar-7: #f6b8da;
+  --color-avatar-8: #d9c4a3;
+
+  --font-sans:
+    ui-rounded, 'Nunito', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+
+  --shadow-pop: 3px 3px 0 0 var(--color-ink);
+  --shadow-pop-sm: 2px 2px 0 0 var(--color-ink);
+
+  --animate-pop-in: pop-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+  --animate-urgent: urgent 0.8s ease-in-out infinite;
+  --animate-rise: rise 0.6s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  /* Ruleta de letras: cada cambio de letra, y el golpe al detenerse. */
+  --animate-tick: tick 0.09s ease-out both;
+  --animate-thump: thump 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  /* Sello de puntos al cambiar el valor (50 / 100 / 200). */
+  --animate-stamp: stamp 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+  /* Aviso de pantalla completa del STOP. */
+  --animate-slam: slam 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+  /* Aro que late alrededor del botón ¡STOP! cuando ya se puede gritar. */
+  --animate-beat: beat 1.3s ease-out infinite;
+
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.85);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes urgent {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.08);
+    }
+  }
+  @keyframes tick {
+    from {
+      opacity: 0.35;
+      transform: translateY(-14%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes thump {
+    0% {
+      opacity: 0.4;
+      transform: scale(1.9) rotate(-10deg);
+    }
+    55% {
+      opacity: 1;
+      transform: scale(0.9) rotate(3deg);
+    }
+    80% {
+      transform: scale(1.06) rotate(-1deg);
+    }
+    100% {
+      transform: scale(1) rotate(0);
+    }
+  }
+  @keyframes stamp {
+    0% {
+      opacity: 0;
+      transform: scale(1.7) rotate(-14deg);
+    }
+    60% {
+      opacity: 1;
+      transform: scale(0.92) rotate(-4deg);
+    }
+    100% {
+      transform: scale(1) rotate(-5deg);
+    }
+  }
+  @keyframes slam {
+    0% {
+      opacity: 0;
+      transform: scale(2.4) rotate(-12deg);
+    }
+    60% {
+      opacity: 1;
+      transform: scale(0.94) rotate(-4deg);
+    }
+    100% {
+      transform: scale(1) rotate(-4deg);
+    }
+  }
+  /* Solo anima la sombra (un aro que se expande): el botón no se mueve, así es fácil de tocar y de probar. */
+  @keyframes beat {
+    0% {
+      box-shadow:
+        3px 3px 0 0 var(--color-ink),
+        0 0 0 0 color-mix(in srgb, var(--color-copihue) 55%, transparent);
+    }
+    100% {
+      box-shadow:
+        3px 3px 0 0 var(--color-ink),
+        0 0 0 14px color-mix(in srgb, var(--color-copihue) 0%, transparent);
+    }
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/*
+ * Alto de la pantalla "de verdad". Por defecto 100dvh; el hook useVisualViewport lo reemplaza por
+ * el alto del visualViewport cuando el teclado del teléfono está abierto, y --app-top compensa el
+ * desplazamiento que hace iOS al enfocar un campo.
+ */
+:root {
+  --app-h: 100dvh;
+  --app-top: 0px;
+}
+
+/* Estilos base en @layer base para que las utilidades de Tailwind puedan sobrescribirlos. */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Sin zoom por doble toque (el zoom de pellizco sigue disponible) ni rebote al desplazar. */
+    touch-action: manipulation;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: color-mix(in srgb, var(--color-ink) 12%, transparent);
+  }
+
+  /* Durante la partida (GameScreen) la página no se desplaza ni rebota. */
+  html.game-lock,
+  html.game-lock body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background-color: var(--color-paper);
+    background-image: radial-gradient(
+      color-mix(in srgb, var(--color-ink) 14%, transparent) 1px,
+      transparent 1.2px
+    );
+    background-size: 22px 22px;
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    line-height: 1.4;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* 16 px mínimo: iOS hace zoom al enfocar un campo con letra menor. */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  /* Los campos de texto sí se pueden seleccionar (Safari no deja escribir si heredan `none`). */
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /* Mantener presionado un botón no selecciona texto ni abre el menú del navegador. */
+  button {
+    touch-action: manipulation;
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-mar);
+    outline-offset: 2px;
+  }
+
+  ::placeholder {
+    color: var(--color-ink-soft);
+    opacity: 1;
+  }
+}
+
+@layer components {
+  /* Hoja de cuaderno cuadriculado: cuadrícula azul tenue y margen rojo a la izquierda. */
+  .sheet-grid {
+    background-color: var(--color-card);
+    background-image:
+      linear-gradient(
+        to right,
+        color-mix(in srgb, var(--color-mar) 16%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in srgb, var(--color-mar) 16%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 20px 20px;
+  }
+
+  .sheet-margin {
+    box-shadow: inset 3px 0 0 0 color-mix(in srgb, var(--color-copihue) 55%, transparent);
+  }
+
+  /* Zonas seguras (viewport-fit=cover): el contenido no queda bajo la muesca ni la barra de inicio. */
+  .safe-pad {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
