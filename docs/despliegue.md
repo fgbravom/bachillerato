@@ -23,7 +23,9 @@ Railway es la plataforma prevista. Aún no hay un despliegue publicado; estos so
 
 ### Primer despliegue (una vez, a mano)
 
-1. En Railway: _New Project → Deploy from GitHub repo_ y elige este repositorio. Railway detecta el `Dockerfile` y construye la imagen.
+1. En Railway: _New Project → Deploy from GitHub repo_ y elige este repositorio. `railway.json` le indica que construya con el `Dockerfile` y con qué comando arrancar.
+   - Railway detecta el monorepo y ofrece crear un servicio por paquete (`@bach/server` y `@bach/web`). **Debe quedar uno solo**: el contenedor ya sirve el cliente y los sockets. Borra el de `@bach/web`.
+   - Si un servicio falla con _The executable `pnpm` could not be found_, es que Railway le puso un comando de arranque propio del monorepo (`pnpm --filter ...`), y la imagen final no trae pnpm. `railway.json` lo reemplaza; si persiste, vacía _Settings → Deploy → Custom Start Command_ y deja _Root Directory_ en `/`.
 2. En los ajustes del **servicio** (no del proyecto), _Networking → Generate Domain_ con el puerto `8080`.
 3. En _Deploy_: una sola réplica, _Healthcheck Path_ `/health` y _Serverless_ activado.
 
