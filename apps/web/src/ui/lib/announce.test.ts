@@ -35,10 +35,10 @@ describe('phaseAnnouncement', () => {
       phaseAnnouncement({
         ...base,
         phase: 'REVIEW',
-        reviewLabel: 'Cantante',
+        reviewLabel: 'Cantante o grupo musical',
         reviewIndex: 6,
       }),
-    ).toBe('Revisión: Cantante, 7 de 7.');
+    ).toBe('Revisión: Cantante o grupo musical, 7 de 7.');
   });
 
   it('el fin de ronda dice qué ronda terminó', () => {

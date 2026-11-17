@@ -23,7 +23,7 @@ export const CATEGORIES: readonly Category[] = [
   { id: 'fruta', label: 'Fruta o verdura' },
   { id: 'animal', label: 'Animal o ave' },
   { id: 'tv', label: 'Serie, programa de TV o personaje' },
-  { id: 'cantante', label: 'Cantante' },
+  { id: 'cantante', label: 'Cantante o grupo musical' },
 ];
 
 /** Letras que pueden salir (sin K, Ñ, Q, W, X, Y, Z). Una por ronda, sin repetir en la partida. */

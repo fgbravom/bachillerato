@@ -234,7 +234,7 @@ test('partida completa de tres jugadores con podio y jugar de nuevo', async ({ n
   ]);
   for (const p of all) await p.markReady();
 
-  // 7. Cantante: "Fito Páez" y "fito paez" son la misma respuesta (sin tildes ni mayúsculas).
+  // 7. Cantante o grupo musical: "Fito Páez" y "fito paez" son la misma respuesta (sin tildes ni mayúsculas).
   for (const p of all) await p.expectReviewCategory(6);
   await expectCards(all, [
     { text: /^fito p[aá]ez$/i, points: 50, authors: 2 },

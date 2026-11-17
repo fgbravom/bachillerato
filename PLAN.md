@@ -30,7 +30,7 @@ despliegue) se copia y adapta, no se reinventa.
 | `fruta` | Fruta o verdura |
 | `animal` | Animal o ave |
 | `tv` | Serie, programa de TV o personaje |
-| `cantante` | Cantante |
+| `cantante` | Cantante o grupo musical |
 
 ### Parámetros
 

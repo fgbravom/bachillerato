@@ -22,7 +22,7 @@ export const CATEGORIES: ReadonlyArray<{ id: CategoryId; label: string }> = [
   { id: 'fruta', label: 'Fruta o verdura' },
   { id: 'animal', label: 'Animal o ave' },
   { id: 'tv', label: 'Serie, programa de TV o personaje' },
-  { id: 'cantante', label: 'Cantante' },
+  { id: 'cantante', label: 'Cantante o grupo musical' },
 ];
 export const TOTAL = CATEGORIES.length;
 

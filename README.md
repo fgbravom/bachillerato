@@ -48,7 +48,7 @@ ni hoja, y echar unas buenas risas. Nada más.
    - Fruta o verdura
    - Animal o ave
    - Serie, programa de TV o personaje
-   - Cantante
+   - Cantante o grupo musical
 3. **¡STOP!** Quien completa la hoja entera grita **¡STOP!** y se cierran las hojas de todos. Si se
    acaba el tiempo, pasa lo mismo.
 4. **Revisión.** Se revisan las respuestas una categoría a la vez. Las que no empiezan con la letra
