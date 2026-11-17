@@ -5,3 +5,4 @@ PLAN.md
 build
 test-results
 playwright-report
+apps/web/public/google*.html
